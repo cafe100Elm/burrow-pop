@@ -118,6 +118,20 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
 .who{display:flex;flex-direction:column;gap:6px;color:var(--muted)}
 .who strong{color:var(--fg);font-weight:600}
 @media (max-width:860px){.main{grid-template-columns:1fr}aside{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px}}
+/* The score line keeps its size as numbers grow, so nothing below it jumps */
+#score,#hi{display:inline-block;min-width:7.5ch}
+#twist{display:inline-block;max-width:12em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+@media (min-width:600px) and (max-width:1000px){
+  header{flex-direction:column;align-items:stretch;gap:10px}
+  .hud{flex-wrap:nowrap;justify-content:space-between;gap:12px}
+  #twist{max-width:8.5em}
+}
+/* Tablets and phones: while a game is on, the page holds still. No scrolling or zooming, and the help
+   (shown on the main menu) steps aside, so swipes and stray thumbs can't move anything */
+body.touch canvas{touch-action:none}
+body.touch.ingame{overflow:hidden;overscroll-behavior:none}
+body.touch.ingame .shell{position:fixed;inset:0;overflow:hidden}
+body.touch.ingame aside{display:none}
 .card .linkbtn{background:none;border:0;box-shadow:none;color:var(--muted);padding:6px 10px;font-size:11px;letter-spacing:.12em;display:inline-flex;align-items:center;gap:8px}
 .card .linkbtn:hover:not(:disabled){color:var(--accent);filter:none}
 .card .linkbtn:disabled{opacity:.6;cursor:default}
@@ -3920,9 +3934,21 @@ function frame(now) {
   const dt = Math.min(1 / 30, (now - last) / 1000); last = now;
   requestAnimationFrame(frame); // schedule first, so one bad frame can never freeze the game
   if (INTRO.active && !INTRO.fading) { try { pollPad(); } catch (err) {} return; } // the 3D intro is covering the page
-  try { pollPad(); update(dt); netTick(dt); render(); drawToast(dt); refreshHud(false); }
+  try { pollPad(); update(dt); netTick(dt); render(); drawToast(dt); refreshHud(false); lockPage(); }
   catch (err) { console.error('Burrow Pop frame error', err); }
 }
+// On a touch screen, pin the page in place for the length of a game (menus scroll as usual)
+let pageLocked = false;
+function lockPage() {
+  const on = G.touch && !['title', 'over'].includes(G.state);
+  if (on === pageLocked) return;
+  pageLocked = on;
+  if (on) try { window.scrollTo(0, 0); } catch (e) {}
+  document.body.classList.toggle('ingame', on);
+  fit();
+}
+// if the score line ever changes height anyway (a long two-player score line, say), resize to keep everything on screen
+try { let hh = 0; new ResizeObserver(() => { const h = $('top').offsetHeight; if (h !== hh) { hh = h; fit(); } }).observe($('top')); } catch (e) {}
 
 setupLevel(); resetPositions();
 fit(); refreshHud(true); showOverlay('title');
