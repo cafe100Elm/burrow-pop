@@ -1,6 +1,6 @@
 // Keeps Burrow Pop on the device so it plays without internet.
 // Opens from the saved copy straight away, and quietly fetches any newer version for next time.
-const CACHE = 'burrow-pop-00ff86689d';
+const CACHE = 'burrow-pop-949cbb3ea9';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

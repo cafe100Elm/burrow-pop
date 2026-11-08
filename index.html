@@ -132,6 +132,19 @@ body.touch canvas{touch-action:none}
 body.touch.pinned{overflow:hidden;overscroll-behavior:none}
 body.touch.pinned .shell{position:fixed;inset:0;overflow:hidden}
 body.touch aside{display:none}
+body.touch.pinned .shell{touch-action:none}
+body.touch #overlay{touch-action:pan-y}
+/* the thumb stick: appears where your thumb lands once you start sliding */
+#stick{position:fixed;left:0;top:0;width:128px;height:128px;margin:-64px 0 0 -64px;border-radius:50%;pointer-events:none;z-index:50;
+  border:2px solid rgba(94,242,255,.35);background:radial-gradient(circle,rgba(94,242,255,.10),rgba(94,242,255,.02) 70%)}
+#stick span{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;opacity:.85;
+  background:radial-gradient(circle at 40% 35%,#9ffaff,var(--accent) 60%,#27b3c6);box-shadow:0 0 18px rgba(94,242,255,.6)}
+/* relaxed pace switch on the menu */
+.card .linkbtn .sw{width:26px;height:14px;border-radius:7px;border:1px solid var(--line);position:relative;flex:none;transition:background .15s}
+.card .linkbtn .sw::after{content:"";position:absolute;top:2px;left:2px;width:8px;height:8px;border-radius:50%;background:var(--muted);transition:transform .15s,background .15s}
+.card .linkbtn.on{color:var(--accent)}
+.card .linkbtn.on .sw{background:rgba(94,242,255,.18);border-color:var(--accent)}
+.card .linkbtn.on .sw::after{transform:translateX(12px);background:var(--accent)}
 .card .linkbtn{background:none;border:0;box-shadow:none;color:var(--muted);padding:6px 10px;font-size:11px;letter-spacing:.12em;display:inline-flex;align-items:center;gap:8px}
 .card .linkbtn:hover:not(:disabled){color:var(--accent);filter:none}
 .card .linkbtn:disabled{opacity:.6;cursor:default}
@@ -256,6 +269,7 @@ body{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-
                 <button id="practiceBtn" class="ghostbtn" type="button">Play</button>
               </div>
             </div>
+            <button id="relaxBtn" class="linkbtn" type="button" aria-pressed="false"><span class="sw" aria-hidden="true"></span><span>Relaxed pace</span></button>
             <button id="introBtn" class="linkbtn" type="button"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 0l9 5-9 5z"/></svg><span>Watch the intro</span></button>
           </div>
         </div>
@@ -378,6 +392,11 @@ const SC = COLS * SUB, SR = ROWS * SUB;
 const W = COLS * T, H = ROWS * T;
 const START = { x: 5, y: 6 };
 const PSPEED = 4.0;
+/* Relaxed pace (a menu switch, remembered on this device): slower critters that breathe fire and slip through
+   dirt less often, a later rush for the exit, and 5 lives to start. Not used in online matches, to keep them fair. */
+const SETTINGS = { relaxed: (() => { try { return localStorage.getItem('burrowpop-relaxed') === '1'; } catch (e) { return false; } })() };
+const relaxed = () => SETTINGS.relaxed && MATCH.mode !== 'online';
+const startLives = () => relaxed() ? 5 : 3;
 /* Each level is a new cave with its own palette; the four strata keep their shapes, only the colors change. */
 const L4 = (a, b, c, d) => [a, b, c, d].map((l, i) => Object.assign({ gem: ['#7fe7ff', '#9dffcf', '#ffe066', '#ff9ad5'][i] }, l));
 const THEMES = [
@@ -736,7 +755,8 @@ const input = {
   held: [], kbPump: false, padPump: false, padDir: null, touchPump: false, touchDir: null, pumpPressed: false,
   get pumpHeld() { return this.kbPump || this.padPump || this.touchPump; },
   // the most recent keyboard direction wins; then the touch D-pad; then the controller
-  dir() { const k = this.held[this.held.length - 1] || this.touchDir || this.padDir; return k ? DIRS[k] : null; },
+  autoDir: null, // tap to go steers through this, when nothing else is pressed
+  dir() { const k = this.held[this.held.length - 1] || this.touchDir || this.padDir || this.autoDir; return k ? DIRS[k] : null; },
 };
 const DIRS = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
 const KEYMAP = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' };
@@ -917,7 +937,21 @@ let dpadId = null, beamId = null;
 function enableTouch() {
   if (G.touch) return;
   G.touch = true; document.body.classList.add('touch'); updateHints(); fit();
+  if (G.ovKind === 'title') showOverlay('title'); // the menu explains the touch controls
 }
+function syncRelaxBtn() {
+  const b = $('relaxBtn'); if (!b) return;
+  b.ariaPressed = SETTINGS.relaxed ? 'true' : 'false'; b.classList.toggle('on', SETTINGS.relaxed);
+  b.title = SETTINGS.relaxed ? 'On: slower critters and 5 lives' : 'Off';
+}
+$('relaxBtn').addEventListener('click', e => {
+  audio();
+  SETTINGS.relaxed = !SETTINGS.relaxed;
+  try { localStorage.setItem('burrowpop-relaxed', SETTINGS.relaxed ? '1' : '0'); } catch (_) {}
+  syncRelaxBtn(); sfx.tick();
+  toast(SETTINGS.relaxed ? 'Relaxed pace on: slower critters, 5 lives' : 'Relaxed pace off');
+  e.currentTarget.blur();
+});
 function dpadSet(e) {
   const r = dpad.getBoundingClientRect(), x = e.clientX - (r.left + r.width / 2), y = e.clientY - (r.top + r.height / 2);
   let d = null;
@@ -956,6 +990,189 @@ function beamEnd(e) {
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => beamBtn.addEventListener(t, beamEnd));
 $('tPause').addEventListener('click', e => { audio(); togglePause(); e.currentTarget.blur(); });
 for (const el of [dpad, beamBtn, $('tPause')]) el.addEventListener('contextmenu', e => e.preventDefault());
+
+/* Easier touch play.
+   Thumb stick: put a thumb down anywhere (except Beam and Pause) and slide the way you want to go. The stick is
+   wherever your thumb landed, and it follows your thumb, so changing direction never needs a long slide.
+   Tap to go: a quick tap in the cave sends the digger there by itself, digging and going around rocks.
+   Touch a critter: the digger turns to it and fires; keep holding to keep pumping. */
+const STICK = { id: null, x0: 0, y0: 0, t0: 0, moved: false, field: false, firing: false };
+const STICK_DEAD = 14, STICK_R = 60;
+let stickEl = null; // made the first time it's needed
+function stickNode() {
+  if (!stickEl) { stickEl = document.createElement('div'); stickEl.id = 'stick'; stickEl.innerHTML = '<span></span>'; document.body.appendChild(stickEl); }
+  return stickEl;
+}
+function fieldPoint(x, y) {
+  const r = $('screen').getBoundingClientRect();
+  if (!r.width || x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
+  return { u: (x - r.left) / r.width * COLS, v: (y - r.top) / r.height * ROWS };
+}
+function critterAt(u, v) {
+  let best = null, bd = 0.85;
+  for (const e of G.enemies) {
+    if (!isAlive(e) || e.fleeing) continue;
+    const d = Math.hypot(e.x + 0.5 - u, e.y + 0.5 - v);
+    if (d < bd) { bd = d; best = e; }
+  }
+  return best;
+}
+function fireAt(e) {
+  const p = G.player; G.goal = null;
+  if (!p || p.state !== 'alive') return;
+  const dx = e.x - p.x, dy = e.y - p.y;
+  if (PUMP.state !== 'attached' || PUMP.target !== e) {
+    if (Math.abs(dx) >= Math.abs(dy)) { p.fx = Math.sign(dx) || p.fx || 1; p.fy = 0; p.lastH = p.fx; } else { p.fx = 0; p.fy = Math.sign(dy) || 1; }
+  }
+  input.pumpPressed = true; PUMP.autoT = 0; input.touchPump = true;
+}
+const stickReady = () => G.touch && !INTRO.active && !G.ovKind && (G.state === 'play' || G.state === 'ready');
+function stickShow(x, y) {
+  const dx = x - STICK.x0, dy = y - STICK.y0, d = Math.hypot(dx, dy) || 1, k = Math.min(1, STICK_R / d), el = stickNode();
+  el.hidden = false;
+  el.style.transform = `translate(${STICK.x0}px,${STICK.y0}px)`;
+  el.firstChild.style.transform = `translate(${dx * k}px,${dy * k}px)`;
+}
+function stickArms(d) { if (dpadId === null) for (const a of dpad.querySelectorAll('.arm')) a.classList.toggle('on', a.dataset.dir === d); }
+window.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse' || STICK.id !== null || !stickReady()) return;
+  const t = e.target;
+  if (t && t.closest && t.closest('#tright, #dpad, header, button, select, a, #overlay')) return;
+  audio();
+  Object.assign(STICK, { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: performance.now(), moved: false, firing: false });
+  const f = fieldPoint(e.clientX, e.clientY);
+  STICK.field = !!f;
+  if (f && G.state === 'play') { const c = critterAt(f.u, f.v); if (c) { fireAt(c); STICK.firing = true; } }
+});
+window.addEventListener('pointermove', e => {
+  if (e.pointerId !== STICK.id) return;
+  let dx = e.clientX - STICK.x0, dy = e.clientY - STICK.y0, d = Math.hypot(dx, dy);
+  if (!STICK.moved) {
+    if (d < STICK_DEAD) return;
+    STICK.moved = true; G.goal = null; // sliding means steering: forget any tap target
+    if (STICK.firing) { STICK.firing = false; input.touchPump = beamId !== null; }
+  }
+  if (d > STICK_R) { // the stick follows a thumb that runs past its edge
+    STICK.x0 = e.clientX - dx / d * STICK_R; STICK.y0 = e.clientY - dy / d * STICK_R;
+    dx = e.clientX - STICK.x0; dy = e.clientY - STICK.y0; d = STICK_R;
+  }
+  let dir = null;
+  if (d >= STICK_DEAD * 0.6) {
+    const cur = input.touchDir, bias = cur === 'up' || cur === 'down' ? 1.3 : cur ? 0.77 : 1; // a little stickiness near the diagonals
+    dir = Math.abs(dx) > Math.abs(dy) * bias ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+  }
+  input.touchDir = dir; stickArms(dir); stickShow(e.clientX, e.clientY);
+});
+function stickEnd(e) {
+  if (e.pointerId !== STICK.id) return;
+  STICK.id = null; if (stickEl) stickEl.hidden = true;
+  if (STICK.firing) input.touchPump = beamId !== null;
+  if (STICK.moved) { if (dpadId === null) input.touchDir = null; stickArms(null); }
+  else if (e.type === 'pointerup' && !STICK.firing && STICK.field && performance.now() - STICK.t0 < 450 && stickReady()) {
+    const f = fieldPoint(e.clientX, e.clientY);
+    if (f) tapGo(f);
+  }
+}
+window.addEventListener('pointerup', stickEnd);
+window.addEventListener('pointercancel', stickEnd);
+function tapGo(f) {
+  const c = Math.max(0, Math.min(COLS - 1, Math.floor(f.u))), r = Math.max(0, Math.min(ROWS - 1, Math.floor(f.v)));
+  G.goal = { c, r, t: 0, path: null, key: '' };
+}
+// Where the digger is effectively standing: the grid square it's heading into
+function startTile(p) {
+  const al = v => Math.abs(Math.round(v) - v) < 1e-6;
+  const c = al(p.x) ? Math.round(p.x) : p.mvx > 0 ? Math.ceil(p.x) : p.mvx < 0 ? Math.floor(p.x) : Math.round(p.x);
+  const r = al(p.y) ? Math.round(p.y) : p.mvy > 0 ? Math.ceil(p.y) : p.mvy < 0 ? Math.floor(p.y) : Math.round(p.y);
+  return [Math.max(0, Math.min(COLS - 1, c)), Math.max(0, Math.min(ROWS - 1, r))];
+}
+// Cheapest route on the grid: around rocks and lava, giving critters a wide berth, preferring tunnels
+// you've already dug and straight lines. Re-planned four times a second, so it steers around critters on the move.
+function findPath(sc, sr, gc, gr) {
+  const N = COLS * ROWS, INF = 1e9, dist = new Float64Array(N * 4).fill(INF), prev = new Int32Array(N * 4).fill(-1);
+  const danger = new Float64Array(N);
+  for (const e of G.enemies) {
+    if (!isAlive(e) || e.state === 'inflated') continue;
+    const ec = Math.round(e.x), er = Math.round(e.y);
+    for (let r = er - 1; r <= er + 1; r++) for (let c = ec - 1; c <= ec + 1; c++) if (inB(c, r)) danger[r * COLS + c] += (c === ec && r === er) ? 12 : 4;
+  }
+  const D = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const heap = []; // [cost, state]
+  const push = (c, st) => { heap.push([c, st]); let i = heap.length - 1; while (i > 0) { const j = (i - 1) >> 1; if (heap[j][0] <= heap[i][0]) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0;
+    for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[i], heap[m]] = [heap[m], heap[i]]; i = m; } }
+    return top; };
+  const blocked = (c, r) => !inB(c, r) || rockAt(c, r) || sealed(r);
+  const s0 = sr * COLS + sc;
+  for (let k = 0; k < 4; k++) { dist[s0 * 4 + k] = 0; } push(0, s0 * 4);
+  while (heap.length) {
+    const [cost, st] = pop();
+    if (cost > dist[st]) continue;
+    const t = st >> 2, k0 = st & 3, c = t % COLS, r = (t / COLS) | 0;
+    for (let k = 0; k < 4; k++) {
+      const nc = c + D[k][0], nr = r + D[k][1];
+      if (blocked(nc, nr)) continue;
+      const nt = nr * COLS + nc, ns = nt * 4 + k;
+      const nd = cost + (isOpen(nc, nr) ? 1 : 1.3) + (t !== s0 && k !== k0 ? 0.2 : 0) + danger[nt];
+      if (nd < dist[ns]) { dist[ns] = nd; prev[ns] = st; push(nd, ns); }
+    }
+  }
+  // the goal, or the reachable square closest to it if it's walled off
+  let best = -1, bestScore = INF;
+  for (let t = 0; t < N; t++) {
+    let m = INF; for (let k = 0; k < 4; k++) m = Math.min(m, dist[t * 4 + k]);
+    if (m >= INF) continue;
+    const score = (Math.abs(t % COLS - gc) + Math.abs(((t / COLS) | 0) - gr)) * 1000 + m;
+    if (score < bestScore) { bestScore = score; best = t; }
+  }
+  if (best < 0) return [[sc, sr]];
+  let st = -1, m = INF; for (let k = 0; k < 4; k++) if (dist[best * 4 + k] < m) { m = dist[best * 4 + k]; st = best * 4 + k; }
+  const path = [];
+  while (st >= 0) { const t = st >> 2; path.push([t % COLS, (t / COLS) | 0]); st = prev[st]; }
+  path.reverse();
+  if (path[0][0] !== sc || path[0][1] !== sr) path.unshift([sc, sr]);
+  return path;
+}
+// Each frame, before the digger moves: pick the direction that follows the route to the tapped spot
+function steerToGoal(dt) {
+  input.autoDir = null;
+  const g = G.goal, p = G.player;
+  if (!g) return;
+  if (!p || p.state !== 'alive') { G.goal = null; return; }
+  if (input.held.length || input.touchDir || input.padDir) { G.goal = null; return; } // you took the controls back
+  if (G.state !== 'play' || p.frozenT > 0 || PUMP.state === 'extend') return;
+  g.t += dt;
+  const [sc, sr] = startTile(p), key = sc + ',' + sr;
+  if (key !== g.key || g.t > 0.25 || !g.path) { g.path = findPath(sc, sr, g.c, g.r); g.key = key; g.t = 0; }
+  const end = g.path[g.path.length - 1];
+  if (g.path.length > 1) {
+    const [nc, nr] = g.path[1];
+    input.autoDir = nc > sc ? 'right' : nc < sc ? 'left' : nr > sr ? 'down' : 'up';
+    return;
+  }
+  // in the last square: settle exactly on its middle, then stop (no sliding on ice)
+  const dx = end[0] - p.x, dy = end[1] - p.y, ax = Math.abs(dx), ay = Math.abs(dy);
+  if (ax < 1e-4 && ay < 1e-4) { G.goal = null; p.slide = 0; return; }
+  if ((ax < 1e-4 || ay < 1e-4) && ax + ay <= PSPEED * dt + 1e-6) {
+    const ox = p.x, oy = p.y;
+    p.x = end[0]; p.y = end[1]; if (ax >= 1e-4) { p.mvx = Math.sign(dx); p.mvy = 0; } else { p.mvy = Math.sign(dy); p.mvx = 0; }
+    finishMove(p, ox, oy); G.goal = null; p.slide = 0;
+    return;
+  }
+  input.autoDir = ax >= 1e-4 ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+}
+// a soft ring on the tapped spot and dots along the way
+function drawGoal() {
+  const g = G.goal; if (!g || G.state !== 'play') return;
+  const pulse = 0.5 + 0.5 * Math.sin(G.t * 6);
+  ctx.save();
+  ctx.fillStyle = 'rgba(94,242,255,0.45)';
+  if (g.path) for (let i = 1; i < g.path.length - 1; i++) { ctx.beginPath(); ctx.arc((g.path[i][0] + 0.5) * T, (g.path[i][1] + 0.5) * T, 2.5, 0, TAU); ctx.fill(); }
+  const [ec, er] = g.path && g.path.length ? g.path[g.path.length - 1] : [g.c, g.r];
+  ctx.strokeStyle = C.accent; ctx.lineWidth = 2; ctx.globalAlpha = 0.55 + 0.4 * pulse;
+  ctx.beginPath(); ctx.arc((ec + 0.5) * T, (er + 0.5) * T, 9 + 4 * pulse, 0, TAU); ctx.stroke();
+  ctx.restore();
+}
 // A touchscreen laptop gets the controls after its first touch (tablets and phones get them at start-up, below)
 window.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') enableTouch(); }, { passive: true });
 
@@ -982,7 +1199,7 @@ $('pauseBtn').addEventListener('click', e => { audio(); togglePause(); e.current
 
 /* ---------- two players: each player keeps their own cave between turns ---------- */
 const MATCH = { mode: 'solo', me: 0, active: 0, players: [] }; // mode: solo | local | online
-const newSlot = () => ({ score: 0, lives: 3, nextLife: 10000, level: 1, world: null, started: false });
+const newSlot = () => ({ score: 0, lives: startLives(), nextLife: 10000, level: 1, world: null, started: false });
 let NEXT_ID = 1;
 function snapshotWorld() {
   return {
@@ -997,7 +1214,7 @@ function snapshotWorld() {
   };
 }
 function restoreWorld(w) {
-  dug = w.dug.slice(); full = w.full.slice();
+  dug = w.dug.slice(); full = w.full.slice(); G.goal = null;
   G.seed = w.seed; G.level = w.level; G.twists = w.twists.slice(); G.boss = w.boss;
   G.bonus = w.bonus ? Object.assign({}, w.bonus) : null;
   setTheme(w.theme); G.mult = w.mult;
@@ -1487,10 +1704,14 @@ function showOverlay(kind) {
   show(ui.practice, kind === 'title' || kind === 'practiceDone' || (kind === 'over' && MATCH.mode === 'solo'));
   show('ovHint', kind !== 'online');
   show('introBtn', kind === 'title');
+  show('relaxBtn', kind === 'title' || kind === 'practiceDone' || (kind === 'over' && MATCH.mode !== 'online'));
+  syncRelaxBtn();
   if (G.practice) ui.practiceSel.value = G.practice;
   if (kind === 'title') {
     ui.ovTitle.innerHTML = 'Burrow <em>Pop</em>';
-    ui.ovMsg.textContent = "Dig tunnels, pump the critters until they pop, and drop rocks on them. Don't let them escape out the top left.";
+    ui.ovMsg.textContent = G.touch
+      ? "Slide a thumb anywhere to move, or tap a spot to dig your way there. Touch a critter to pump it until it pops. Don't let them escape out the top left."
+      : "Dig tunnels, pump the critters until they pop, and drop rocks on them. Don't let them escape out the top left.";
     ui.ovBtn.textContent = '1 player';
   } else if (kind === 'paused') {
     ui.ovTitle.textContent = 'Paused';
@@ -1672,7 +1893,7 @@ function setupBonus() {
 function resetPositions() {
   G.player = { x: START.x, y: START.y, fx: 1, fy: 0, mvx: 0, mvy: 0, lastH: 1, moving: false, state: 'alive', t: 0, walk: 0, cause: '', slide: 0,
     warpLock: -1, warpT: 0 };
-  PUMP.state = 'off'; PUMP.target = null;
+  PUMP.state = 'off'; PUMP.target = null; G.goal = null;
   G.fleeT = 0; G.sinceReady = 0; G.shake = 0; G.pings = [];
   if (G.lavaY < 99) G.lavaY = Math.min(ROWS + 0.4, G.lavaY + 3); // after a death the lava falls back a little
   // Rocks still falling when you lost a life: settle them now, scoring anything they had crushed,
@@ -1697,7 +1918,7 @@ function startGame(mode) {
   if (MATCH.mode === 'online') leaveOnline();
   G.practice = null;
   MATCH.mode = mode; MATCH.active = 0; MATCH.players = [newSlot(), newSlot()];
-  G.score = 0; G.level = 1; G.lives = 3; G.nextLife = 10000;
+  G.score = 0; G.level = 1; G.lives = startLives(); G.nextLife = 10000;
   setupLevel(); resetPositions();
   G.turnBanner = mode === 'local';
   setState('ready'); showOverlay(null); refreshHud(true);
@@ -1708,7 +1929,7 @@ function startPractice(key) {
   if (MATCH.mode === 'online') leaveOnline();
   MATCH.mode = 'solo'; G.turnBanner = false;
   G.practice = key;
-  G.score = 0; G.lives = 3; G.nextLife = 10000;
+  G.score = 0; G.lives = startLives(); G.nextLife = 10000;
   G.level = PRACTICE_LEVEL[key] || PRACTICE_DIFFICULTY;
   if (key === 'bonus') { setupBonus(); sfx.bonusStart(); }
   else { setupLevel(); resetPositions(); setState('ready'); (key === 'boss' ? sfx.boss : sfx.start)(); }
@@ -1964,6 +2185,7 @@ const lv = () => G.level - 1;
 const breather = e => e.type === 'ember' || e.type === 'frost';
 function eSpeed(e) {
   let s = Math.min(1.85 + 0.2 * lv(), 3.2);
+  if (relaxed()) s *= 0.72;
   if (tw('stampede')) s *= 1.08;
   if (G.hurry && !tw('breakout')) s *= 1.15;
   if (breather(e)) s *= 0.93;
@@ -1972,16 +2194,16 @@ function eSpeed(e) {
   if (e.fleeing) return Math.min(s * 1.45, PSPEED);
   return Math.min(s, PSPEED * 0.88);
 }
-const ghostSpeed = () => Math.min(1.05 + 0.1 * lv(), 2.2) * (tw('stampede') ? 1.08 : 1);
+const ghostSpeed = () => Math.min(1.05 + 0.1 * lv(), 2.2) * (tw('stampede') ? 1.08 : 1) * (relaxed() ? 0.75 : 1);
 const chaseChance = () => Math.min(0.9, 0.45 + 0.06 * lv() + (G.hurry ? 0.1 : 0));
 // Arcade rule: critters only run for the exit when the music speeds up ("hurry up"), or when one is left.
 // Seconds into a level before the speed-up: level 1 90s, dropping 6s a level to 45s; Breakout makes it 25s.
-const hurryAt = () => tw('breakout') ? 40 : Math.max(45, 90 - 6 * lv());
+const hurryAt = () => (tw('breakout') ? 40 : Math.max(45, 90 - 6 * lv())) + (relaxed() ? 20 : 0);
 // From level 5, Embers stay behind and hunt you during the rush instead of running
 const embersHunt = () => G.level >= 5 && !tw('breakout'); // in Breakout everyone runs
-const ghostInterval = () => (Math.max(3, 9.5 - 0.8 * lv()) + Math.random() * 5) * (tw('restless') ? 0.5 : 1);
+const ghostInterval = () => (Math.max(3, 9.5 - 0.8 * lv()) + Math.random() * 5) * (tw('restless') ? 0.5 : 1) * (relaxed() ? 1.4 : 1);
 const ghostCap = () => (G.level <= 1 ? 1 : G.level <= 3 ? 2 : G.level <= 6 ? 3 : 4) + (tw('restless') ? 1 : 0);
-const chargeTime = () => Math.max(0.5, 0.85 - 0.04 * lv());
+const chargeTime = () => Math.max(0.5, 0.85 - 0.04 * lv()) * (relaxed() ? 1.35 : 1); // relaxed: a longer warning flash
 const deflateEvery = () => Math.max(0.45, 0.85 - 0.05 * lv());
 // The flame grows in 3 quick steps to 2 tiles. It passes through dirt, but a rock stops it.
 const flameLen = e => Math.min(3, Math.ceil(Math.max(e.t, 0.001) / 0.1)) / 3 * (e.reach != null ? e.reach : 2);
@@ -2055,7 +2277,7 @@ function updateEnemy(e, dt) {
         }
       }
       if (breather(e) && !e.fleeing && e.state === 'walk' && G.sinceReady > 2) {
-        e.fireCD -= dt;
+        e.fireCD -= dt * (relaxed() ? 0.65 : 1);
         const lined = p.state === 'alive' && Math.abs(e.y - p.y) < 0.5 && Math.abs(e.x - p.x) < 3.5;
         // Like the arcade original: it stops and breathes fire every few seconds whatever it's doing,
         // and sooner when you're lined up with it, even through a wall of dirt
@@ -2354,6 +2576,7 @@ function update(dt) {
         else startFlee(e);
       }
     }
+    steerToGoal(dt);
     movePlayer(dt);
     if (p.frozenT > 0) {
       p.frozenT -= dt;
@@ -3382,6 +3605,7 @@ function render() {
   ctx.drawImage(map, 0, 0, W, H);
   drawAmbient();
   drawPads();
+  drawGoal();
   drawScorch();
   drawGem();
   for (const e of G.enemies) if (e.state === 'crushed') drawEnemy(e);
